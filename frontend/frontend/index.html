@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalla Argentina... Estrategia Nacional!</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .territorio-reforzable {
+            stroke: #38bdf8 !important;
+            stroke-width: 2.8px !important;
+            filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.85));
+        }
+        .territorio-destino-ataque {
+            stroke: #ef4444 !important;
+            stroke-width: 3.2px !important;
+            filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9));
+        }
+        .territorio-destino-reagrupe {
+            stroke: #22c55e !important;
+            stroke-width: 3.2px !important;
+            filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.9));
+        }
+        .territorio-origen {
+            stroke: #facc15 !important;
+            stroke-width: 3.5px !important;
+            filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.95));
+        }
+        .toast-flotante {
+            position: fixed;
+            top: 84px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2800;
+            padding: 12px 22px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.98rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <!-- Toast flotante de cambio de turno / acciones -->
+    <div id="toast-notificacion" class="toast-flotante hidden"></div>
+
+    <div class="app-wrapper">
+        <header class="navbar" style="flex-wrap: wrap; gap: 10px;">
+            <div class="brand">
+                <span class="brand-badge">AR</span>
+                <div>
+                    <h1>Batalla Argentina</h1>
+                    <p class="subtitle">Estrategia Nacional</p>
+                </div>
+            </div>
+
+            <div class="status-bar" id="status-bar" style="flex-wrap: wrap; gap: 8px;">
+                <span class="status-pill" id="codigo-sala">Sin partida activa</span>
+                <span class="status-pill hidden" id="reloj-turno" style="border-color: #facc15; color: #facc15; font-weight: 800;">⏱️ 20s</span>
+                <button id="btn-ver-codigo" class="btn btn-secondary hidden" style="padding: 6px 12px; font-size: 0.85rem;">📋 Compartir Sala</button>
+            </div>
+
+            <div class="nav-actions" style="flex-wrap: wrap; gap: 8px;">
+                <button id="btn-nueva-partida" class="btn btn-primary">+ Nueva Partida</button>
+                <button id="btn-unirse-partida" class="btn btn-secondary">Unirse a Sala</button>
+                <button id="btn-iniciar-batalla" class="btn btn-accent hidden" style="background: #22c55e; color: #052e16; font-weight: 800; box-shadow: 0 0 14px rgba(34, 197, 94, 0.45);">🚀 Iniciar Batalla</button>
+                <button id="btn-modo-reagrupar" class="btn btn-secondary hidden">🔄 Reagrupar</button>
+                <button id="btn-pasar-turno" class="btn btn-accent hidden">Pasar Turno ⏭</button>
+                <button id="btn-rendirse" class="btn btn-ghost hidden" style="color: #f38ba8; border: 1px solid #f38ba8;">🏳️ Rendirse</button>
+            </div>
+        </header>
+
+        <main class="game-layout">
+            <!-- Panel Izquierdo: Estadísticas de Jugadores y Territorios -->
+            <aside class="side-panel" id="panel-izquierdo">
+                <div class="panel-header">
+                    <h3>🎖️ Estado de Fuerzas</h3>
+                    <span class="panel-sub">Propios y Rivales</span>
+                </div>
+                <div id="lista-jugadores-stats" class="stats-list">
+                    <p class="empty-msg">Iniciá o unite a una partida para ver las tropas.</p>
+                </div>
+                <div class="panel-divider"></div>
+                <div class="panel-header">
+                    <h4>📍 Mis Territorios</h4>
+                </div>
+                <div id="lista-mis-territorios" class="territories-mini-list"></div>
+            </aside>
+
+            <!-- Centro: Tablero Cartográfico -->
+            <section id="tablero-section" class="board-card">
+                <div class="board-header">
+                    <div>
+                        <h2 id="titulo-mapa">Mapa de Territorios</h2>
+                        <span class="hint-text" id="indicador-fase">Creá o unite a una sala para comenzar</span>
+                    </div>
+                    <div id="badge-refuerzos" class="hidden" style="background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; padding: 8px 14px; border-radius: 10px; font-weight: 700; font-size: 0.9rem;">
+                        🎖️ Refuerzos: <span id="cant-refuerzos">0</span>
+                    </div>
+                </div>
+
+                <!-- Banner Visual de Alerta de Turno e Instrucción Paso a Paso -->
+                <div id="banner-alerta-turno" class="hidden" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 10px; border-left: 5px solid #38bdf8; background: #0f172a; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <div>
+                        <div id="banner-turno-titulo" style="font-weight: 800; font-size: 0.98rem; color: #38bdf8;">⚡ ES TU TURNO</div>
+                        <div id="banner-turno-pasos" style="font-size: 0.86rem; color: #cbd5e1; margin-top: 2px;">Seguí las instrucciones en pantalla para desplegar, atacar o reagrupar.</div>
+                    </div>
+                    <button type="button" id="btn-cancelar-accion-mapa" class="btn btn-ghost hidden" style="padding: 5px 10px; font-size: 0.8rem; border: 1px solid #64748b;">✖ Cancelar Selección</button>
+                </div>
+
+                <div id="mapa-container"></div>
+            </section>
+
+            <!-- Panel Derecho: Mazo de Cartas Nacionales y Canjes -->
+            <aside class="side-panel" id="panel-derecho">
+                <div class="panel-header">
+                    <h3>🃏 Cartas y Eventos</h3>
+                    <span class="panel-sub">Emblemas, Armas y Trampas</span>
+                </div>
+                <div id="info-bonus-cartas" class="bonus-box">
+                    Conquistá territorios para ganar tarjetas. Si te toca un <strong>territorio propio</strong>, elegís un beneficio especial; ¡cuidado con las <strong>cartas trampa</strong>!
+                </div>
+                <div id="lista-mis-cartas" class="cards-list">
+                    <p class="empty-msg">Aún no tenés cartas en tu mano.</p>
+                </div>
+                <button id="btn-canjear-cartas" class="btn btn-primary hidden" style="width: 100%; margin-top: 12px;">
+                    ✨ Canjear 3 Cartas Seleccionadas
+                </button>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Modal: Pantalla de Advertencia Táctica (10 segundos, visual de alerta extrema) -->
+    <div id="modal-carga-tactica" class="modal hidden" style="z-index: 3000; background: radial-gradient(circle at center, rgba(127, 29, 29, 0.92) 0%, rgba(9, 11, 18, 0.98) 85%);">
+        <div class="modal-card" style="max-width: 540px; text-align: center; background: #0d0608; border: 2px solid #ef4444; box-shadow: 0 0 45px rgba(239, 68, 68, 0.55), inset 0 0 25px rgba(185, 28, 28, 0.35);">
+            <div style="font-size: 3.4rem; margin-bottom: 6px; filter: drop-shadow(0 0 12px #ef4444);">☠️⚠️☠️</div>
+            <div style="letter-spacing: 3px; font-size: 0.78rem; font-weight: 800; color: #f87171; text-transform: uppercase; margin-bottom: 4px;">
+                ALERTA DE INTELIGENCIA MILITAR — ZONA HOSTIL
+            </div>
+            <h3 style="color: #fef2f2; font-size: 1.55rem; margin-bottom: 14px; text-shadow: 0 0 10px rgba(239, 68, 68, 0.8);">
+                ¡ENTRAMOS EN TERRITORIO DE GUERRA!
+            </h3>
+            <p id="mensaje-carga-tactica" style="color: #fecaca; font-size: 1.04rem; line-height: 1.6; background: rgba(69, 10, 10, 0.65); padding: 16px; border-radius: 10px; border: 1px solid #dc2626; margin-bottom: 16px;">
+                "Recordá... Así como en cada provincia podés encontrar refuerzos, armamento y ventajas ocultas, también te esperan emboscadas, cartas trampa y climas mortales que pueden destruir tu jugada en segundos. Una vez iniciada la batalla, no hay retirada sin derrota."
+            </p>
+            <div style="width: 100%; height: 8px; background: #271014; border-radius: 999px; overflow: hidden; margin-bottom: 8px;">
+                <div id="barra-carga-tactica" style="width: 100%; height: 100%; background: linear-gradient(90deg, #dc2626, #facc15); transition: width 1s linear;"></div>
+            </div>
+            <span id="contador-carga-tactica" style="font-size: 0.85rem; font-weight: 700; color: #f87171;">Desplegando tropas en 10s...</span>
+        </div>
+    </div>
+
+    <!-- Modal: Confirmar Rendición -->
+    <div id="modal-confirmar-rendicion" class="modal hidden" style="z-index: 2500;">
+        <div class="modal-card modal-sm" style="text-align: center; border: 2px solid #ef4444;">
+            <div class="modal-header" style="justify-content: center;">
+                <h3 style="color: #f87171; font-size: 1.35rem;">⚠️ ¿Confirmás tu Rendición?</h3>
+            </div>
+            <p style="color: #e2e8f0; font-size: 0.96rem; line-height: 1.5; margin-bottom: 18px;">
+                Una vez iniciada la partida no podés retirarte sin perder. Si confirmás ahora, tus territorios serán entregados y quedarás declarado <strong>DERROTADO</strong>.
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button type="button" class="btn btn-ghost" onclick="cerrarModal('modal-confirmar-rendicion')">Seguir Peleando</button>
+                <button type="button" id="btn-confirmar-rendicion-si" class="btn btn-primary" style="background: #ef4444; color: #fff; font-weight: 700;">🏳️ Sí, Rendirme</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Crear Nueva Partida -->
+    <div id="modal-crear-partida" class="modal hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Configurar Nueva Partida</h3>
+                <button type="button" class="btn-close" onclick="cerrarModal('modal-crear-partida')">&times;</button>
+            </div>
+            <form id="form-crear-partida" class="form-grid">
+                <div class="form-group full-width">
+                    <label for="crear-nombre">Nombre de la Sala</label>
+                    <input type="text" id="crear-nombre" value="Batalla Federal" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-jugador">Tu Nombre</label>
+                    <input type="text" id="crear-jugador" value="Mariano" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-color">Color de tus Tropas</label>
+                    <select id="crear-color">
+                        <option value="Azul" selected>🔵 Azul</option>
+                        <option value="Rojo">🔴 Rojo</option>
+                        <option value="Verde">🟢 Verde</option>
+                        <option value="Amarillo">🟡 Amarillo</option>
+                        <option value="Violeta">🟣 Violeta</option>
+                        <option value="Naranja">🟠 Naranja</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-modo">Modalidad</label>
+                    <select id="crear-modo">
+                        <option value="VS_IA">1 Jugador vs IA</option>
+                        <option value="MULTIJUGADOR">Multijugador (2 a 8 Jugadores)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-tipo-mapa">Escenario / Mapa</label>
+                    <select id="crear-tipo-mapa">
+                        <option value="NACIONAL">Nacional (24 Jurisdicciones + Malvinas)</option>
+                        <option value="PROVINCIAL" selected>Provincial (Por Departamentos)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="grupo-provincia">
+                    <label for="crear-provincia">Seleccionar Provincia</label>
+                    <select id="crear-provincia"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-tiempo-turno">Tiempo por Turno (20s a 120s)</label>
+                    <select id="crear-tiempo-turno">
+                        <option value="20" selected>⏱️ 20 segundos (Relámpago)</option>
+                        <option value="40">⏱️ 40 segundos (Ágil)</option>
+                        <option value="60">⏱️ 60 segundos (Estándar)</option>
+                        <option value="90">⏱️ 90 segundos (Táctico)</option>
+                        <option value="120">⏱️ 120 segundos (Máximo)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="crear-privacidad">Acceso a la Sala</label>
+                    <select id="crear-privacidad">
+                        <option value="ABIERTA">Abierta (Pública)</option>
+                        <option value="CERRADA">Cerrada (Con Contraseña)</option>
+                    </select>
+                </div>
+
+                <div class="form-group hidden" id="campo-password">
+                    <label for="crear-password">Contraseña de Sala</label>
+                    <input type="password" id="crear-password" placeholder="Ingresá clave secreta">
+                </div>
+
+                <div class="modal-footer full-width">
+                    <button type="button" class="btn btn-ghost" onclick="cerrarModal('modal-crear-partida')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Crear Sala</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Elección de Beneficio por Carta de Territorio Propio -->
+    <div id="modal-beneficio-carta" class="modal hidden">
+        <div class="modal-card modal-sm" style="text-align: center;">
+            <div class="modal-header">
+                <h3>🎖️ Beneficio de Territorio Propio</h3>
+                <button type="button" class="btn-close" onclick="cerrarModal('modal-beneficio-carta')">&times;</button>
+            </div>
+            <p id="texto-beneficio-carta" style="color: #cbd5e1; margin-bottom: 14px; font-size: 0.95rem;"></p>
+            <div class="opciones-grid">
+                <button type="button" class="opcion-btn" style="background:#a6e3a1; color:#090d16; font-weight:bold;" onclick="aplicarBeneficioCarta('TROPAS_EXTRA')">
+                    🪖 +3 Tropas Inmediatas en el Territorio
+                </button>
+                <button type="button" class="opcion-btn" style="background:#f9e2af; color:#090d16; font-weight:bold;" onclick="aplicarBeneficioCarta('SABOTAJE')">
+                    🕵️ Sabotaje: Anular Ventaja Defensiva Rival
+                </button>
+                <button type="button" class="opcion-btn" style="background:#89b4fa; color:#090d16; font-weight:bold;" onclick="aplicarBeneficioCarta('BLINDAJE')">
+                    🛡️ Fortificar Territorio (+2 Defensa por 1 Turno)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Sala Creada / Código para Compartir -->
+    <div id="modal-sala-creada" class="modal hidden">
+        <div class="modal-card modal-sm">
+            <div class="modal-header">
+                <h3>¡Sala Lista para la Guerra!</h3>
+                <button type="button" class="btn-close" onclick="cerrarModal('modal-sala-creada')">&times;</button>
+            </div>
+            <div style="text-align: center; padding: 10px 0;">
+                <p style="color: #94a3b8; font-size: 0.92rem; margin-bottom: 12px;">
+                    Compartí este código con los demás jugadores y luego pulsá <strong>🚀 Iniciar Batalla</strong>:
+                </p>
+                <div style="background: #0f131d; border: 2px dashed #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 14px;">
+                    <span id="info-codigo-creado" style="font-size: 2rem; font-weight: 800; letter-spacing: 6px; color: #38bdf8;">------</span>
+                </div>
+                <p id="info-privacidad-creada" style="font-size: 0.88rem; color: #cbd5e1; margin-bottom: 18px;"></p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button type="button" id="btn-copiar-codigo" class="btn btn-secondary">📋 Copiar Código</button>
+                    <button type="button" class="btn btn-primary" onclick="cerrarModal('modal-sala-creada')">Ir al Tablero</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Unirse a Sala -->
+    <div id="modal-unirse-partida" class="modal hidden">
+        <div class="modal-card modal-sm">
+            <div class="modal-header">
+                <h3>Unirse a una Sala</h3>
+                <button type="button" class="btn-close" onclick="cerrarModal('modal-unirse-partida')">&times;</button>
+            </div>
+            <form id="form-unirse-partida" class="form-grid">
+                <div class="form-group full-width">
+                    <label for="unirse-codigo">Código de Sala</label>
+                    <input type="text" id="unirse-codigo" maxlength="6" placeholder="EJ: A1B2C3" required style="text-transform:uppercase;">
+                </div>
+                <div class="form-group">
+                    <label for="unirse-jugador">Tu Nombre</label>
+                    <input type="text" id="unirse-jugador" placeholder="Ej: Juan" required>
+                </div>
+                <div class="form-group">
+                    <label for="unirse-color">Color Preferido</label>
+                    <select id="unirse-color">
+                        <option value="Verde" selected>🟢 Verde</option>
+                        <option value="Rojo">🔴 Rojo</option>
+                        <option value="Azul">🔵 Azul</option>
+                        <option value="Amarillo">🟡 Amarillo</option>
+                        <option value="Violeta">🟣 Violeta</option>
+                        <option value="Naranja">🟠 Naranja</option>
+                    </select>
+                </div>
+                <div class="form-group full-width">
+                    <label for="unirse-password">Contraseña (obligatoria si la sala es cerrada)</label>
+                    <input type="password" id="unirse-password" placeholder="Dejar vacío si es sala abierta">
+                </div>
+                <div class="modal-footer full-width">
+                    <button type="button" class="btn btn-ghost" onclick="cerrarModal('modal-unirse-partida')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Entrar a la Sala</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Combate / Trivia -->
+    <div id="modal-trivia" class="modal hidden">
+        <div class="modal-card modal-sm">
+            <div class="modal-header">
+                <h3 id="trivia-categoria">Combate</h3>
+            </div>
+            <div id="trivia-terreno-info" style="background:#0f131d; border-left:3px solid #38bdf8; padding:8px 10px; border-radius:6px; font-size:0.84rem; color:#94a3b8; margin-bottom:10px;"></div>
+            <p id="trivia-pregunta" class="combat-desc">Cargando desafío...</p>
+            <div id="trivia-opciones" class="opciones-grid"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Resultado de Combate / Cargada Argentina -->
+    <div id="modal-resultado" class="modal hidden">
+        <div class="modal-card modal-sm" style="text-align: center;">
+            <div class="modal-header" style="justify-content: center;">
+                <h3 id="resultado-titulo" style="font-size: 1.4rem;">Resultado</h3>
+            </div>
+            <div id="resultado-dados" style="background: #0f131d; border: 1px solid #2a344d; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 1rem; color: #f8fafc;"></div>
+            <p id="resultado-chiste" style="font-style: italic; color: #facc15; font-size: 1.02rem; line-height: 1.45; margin-bottom: 20px; padding: 0 8px;"></p>
+            <button type="button" class="btn btn-primary" style="width: 100%;" onclick="cerrarModal('modal-resultado')">¡Seguimos!</button>
+        </div>
+    </div>
+
+    <!-- Modal: Victoria Final -->
+    <div id="modal-victoria" class="modal hidden">
+        <div class="modal-card modal-sm" style="text-align: center; border: 2px solid #facc15;">
+            <div class="modal-header" style="justify-content: center;">
+                <h3 style="font-size: 1.6rem; color: #facc15;">👑 ¡VICTORIA NACIONAL!</h3>
+            </div>
+            <p id="victoria-mensaje" style="font-size: 1.15rem; color: #f8fafc; margin-bottom: 18px; line-height: 1.5;"></p>
+            <button type="button" class="btn btn-primary" style="width: 100%;" onclick="cerrarModal('modal-victoria')">Ver Mapa Conquistado</button>
+        </div>
+    </div>
+
+    <!-- Modal: Derrotado por Abandono / Rendición -->
+    <div id="modal-derrotado" class="modal hidden" style="z-index: 2600;">
+        <div class="modal-card modal-sm" style="text-align: center; border: 2px solid #ef4444; background: #14080b;">
+            <div style="font-size: 3rem; margin-bottom: 6px;">💀</div>
+            <div class="modal-header" style="justify-content: center;">
+                <h3 style="font-size: 1.75rem; color: #ef4444; letter-spacing: 2px;">DERROTADO</h3>
+            </div>
+            <p id="derrotado-mensaje" style="font-size: 1.08rem; color: #f8fafc; margin-bottom: 18px; line-height: 1.5;">
+                Abandonaste el campo de batalla. Tus tropas se dispersaron y fuiste declarado derrotado.
+            </p>
+            <button type="button" class="btn btn-primary" style="width: 100%;" onclick="cerrarModal('modal-derrotado')">Entendido</button>
+        </div>
+    </div>
+
+    <!-- Dataset Geográfico Completo -->
+    <script src="data/argentina_completa.js"></script>
+
+    <!-- Scripts de la App -->
+    <script src="js/mapa_svg.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
