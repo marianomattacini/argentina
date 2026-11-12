@@ -9,6 +9,9 @@ from .views import (
     PrepararAtaqueAPIView,
     ResolverCombateAPIView,
     PasarTurnoAPIView,
+    UsarBombaAPIView,
+    ElegirBeneficioCartaAPIView,
+    RendirseAPIView,
 )
 
 urlpatterns = [
@@ -21,4 +24,7 @@ urlpatterns = [
     path('preparar-ataque/', PrepararAtaqueAPIView.as_view(), name='preparar-ataque'),
     path('resolver-combate/', ResolverCombateAPIView.as_view(), name='resolver-combate'),
     path('pasar-turno/<int:partida_id>/', PasarTurnoAPIView.as_view(), name='pasar-turno'),
+    path('usar-bomba/', UsarBombaAPIView.as_view(), name='usar-bomba'),
+    path('beneficio-carta/', ElegirBeneficioCartaAPIView.as_view(), name='beneficio-carta'),
+    path('rendirse/', RendirseAPIView.as_view(), name='rendirse'),
 ]

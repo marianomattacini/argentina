@@ -70,6 +70,7 @@ class Partida(models.Model):
     modo_juego = models.CharField(max_length=20, choices=MODO_CHOICES, default='VS_IA')
     privacidad = models.CharField(max_length=10, choices=PRIVACIDAD_CHOICES, default='ABIERTA')
     password = models.CharField(max_length=128, blank=True, null=True)
+    tiempo_turno = models.IntegerField(default=20)
     
     creada_en = models.DateTimeField(auto_now_add=True)
     activa = models.BooleanField(default=True)
@@ -103,6 +104,11 @@ class Jugador(models.Model):
     orden = models.IntegerField(default=0)
     tropas_disponibles = models.IntegerField(default=0)
     canjes_realizados = models.IntegerField(default=0)
+    reagrupamientos_turno = models.IntegerField(default=0)
+    bloqueo_refuerzos = models.BooleanField(default=False)
+    perder_turno = models.BooleanField(default=False)
+    sabotaje_activo = models.BooleanField(default=False)
+    rendido = models.BooleanField(default=False)
     token = models.CharField(max_length=64, default=generar_token_jugador)
 
     def __str__(self):
@@ -113,6 +119,7 @@ class EstadoTablero(models.Model):
     municipio = models.ForeignKey(Municipio, on_delete=models.CASCADE)
     jugador = models.ForeignKey(Jugador, on_delete=models.CASCADE, null=True, blank=True)
     tropas = models.IntegerField(default=1)
+    blindado_turno = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.municipio.nombre} - {self.jugador.nombre if self.jugador else 'Libre'} ({self.tropas} tropas)"
@@ -124,13 +131,21 @@ class CartaTerritorio(models.Model):
         ('OBELISCO', 'Obelisco / Monumento (Ciudad)'),
         ('COMODIN', 'Escarapela Nacional (Comodín)'),
     ]
+    TIPO_CARTA_CHOICES = [
+        ('TERRITORIO', 'Tarjeta de Territorio'),
+        ('BOMBA', 'Bomba Táctica Aérea'),
+        ('ARMA', 'Arsenal Federal'),
+        ('TRAMPA', 'Carta Trampa'),
+    ]
     partida = models.ForeignKey(Partida, on_delete=models.CASCADE, related_name='cartas')
     jugador = models.ForeignKey(Jugador, on_delete=models.CASCADE, related_name='cartas')
     municipio = models.ForeignKey(Municipio, on_delete=models.CASCADE)
     simbolo = models.CharField(max_length=20, choices=SIMBOLO_CHOICES)
+    tipo_carta = models.CharField(max_length=20, choices=TIPO_CARTA_CHOICES, default='TERRITORIO')
+    efecto_codigo = models.CharField(max_length=50, blank=True, default='')
     emblema_titulo = models.CharField(max_length=100)
     emblema_icono = models.CharField(max_length=16, default='🇦🇷')
     canjeada = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.municipio.nombre} [{self.simbolo}] - {self.jugador.nombre}"
+        return f"{self.municipio.nombre} [{self.tipo_carta}/{self.simbolo}] - {self.jugador.nombre}"
