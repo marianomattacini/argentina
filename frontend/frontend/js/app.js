@@ -275,7 +275,7 @@ document.getElementById('form-crear-partida').addEventListener('submit', async (
         if (modo_juego === 'VS_IA') {
             mostrarPantallaCarga10Seg(() => iniciarPartidaEnServidor());
         } else {
-            abrirModal('modal-sala-creada');
+            mostrarSalaCreada();
         }
     } catch (err) { console.error('Error al crear:', err); }
 });
@@ -369,6 +369,7 @@ async function ejecutarPasarTurno(porTiempoAgotado = false) {
         if (data.acciones_ia && data.acciones_ia.length > 0) {
             mostrarToast(data.acciones_ia[data.acciones_ia.length - 1], 'espera');
         }
+        anunciarResultadoTurno(data);
 
         municipioOrigenId = null;
         municipioDestinoId = null;
@@ -678,19 +679,71 @@ async function prepararAtaque(origenId, destinoId) {
     } catch (err) { console.error('Error preparando ataque:', err); }
 }
 
+function crearBotonOpcion(texto, estilo, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'opcion-btn';
+    if (estilo) btn.setAttribute('style', estilo);
+    btn.textContent = texto;
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+function cancelarCombatePendiente() {
+    cerrarModal('modal-trivia');
+    municipioOrigenId = null;
+    municipioDestinoId = null;
+    actualizarHeader();
+    actualizarResaltadosMapa();
+}
+
+function mostrarPreguntaTrivia(dataAtaque, modalidad) {
+    const contenedorOpciones = document.getElementById('trivia-opciones');
+    const pregunta = dataAtaque.trivia;
+    document.getElementById('trivia-pregunta').innerText = pregunta.texto;
+    contenedorOpciones.innerHTML = '';
+    (pregunta.opciones || []).forEach(op => {
+        contenedorOpciones.appendChild(crearBotonOpcion(op.texto, '', () => ejecutarCombateDirecto(modalidad, op.id)));
+    });
+}
+
 function mostrarOpcionesAtaque(dataAtaque) {
     document.getElementById('trivia-categoria').innerText = `Combate: ${dataAtaque.origen} vs ${dataAtaque.destino}`;
+
+    const terrenoEl = document.getElementById('trivia-terreno-info');
+    if (terrenoEl) {
+        const t = dataAtaque.info_terreno;
+        terrenoEl.textContent = t ? `${t.icono} ${t.bioma} — ${t.beneficio_def}` : '';
+        terrenoEl.classList.toggle('hidden', !t);
+    }
+
+    const tienePregunta = Boolean(dataAtaque.trivia && dataAtaque.trivia.opciones && dataAtaque.trivia.opciones.length);
+
+    if (dataAtaque.trivia_obligatoria && tienePregunta) {
+        document.getElementById('trivia-categoria').innerText = `⚠️ TRIVIA OBLIGATORIA — ${dataAtaque.origen} vs ${dataAtaque.destino}`;
+        mostrarPreguntaTrivia(dataAtaque, 'TRIVIA_OBLIGATORIA');
+        abrirModal('modal-trivia');
+        return;
+    }
+
     document.getElementById('trivia-pregunta').innerText = 'Elegí la modalidad de combate:';
     const contenedorOpciones = document.getElementById('trivia-opciones');
-    contenedorOpciones.innerHTML = `
-        <button class="opcion-btn" style="background:#38bdf8; color:#090d16; font-weight:bold;" onclick="ejecutarCombateDirecto()">
-            Ataque Directo por Dados
-        </button>
-    `;
+    contenedorOpciones.innerHTML = '';
+    contenedorOpciones.appendChild(crearBotonOpcion(
+        'Ataque Directo por Dados', 'background:#38bdf8; color:#090d16; font-weight:bold;',
+        () => ejecutarCombateDirecto()
+    ));
+    if (tienePregunta) {
+        contenedorOpciones.appendChild(crearBotonOpcion(
+            '🧠 Trivia Argentina (+1 al dado si acertás, +1 defensa rival si fallás)', 'background:#facc15; color:#090d16; font-weight:bold;',
+            () => mostrarPreguntaTrivia(dataAtaque, 'TRIVIA')
+        ));
+    }
+    contenedorOpciones.appendChild(crearBotonOpcion('Cancelar', 'background:#1e293b; color:#cbd5e1;', cancelarCombatePendiente));
     abrirModal('modal-trivia');
 }
 
-async function ejecutarCombateDirecto() {
+async function ejecutarCombateDirecto(modalidad = 'DADOS', opcionId = null) {
     try {
         const res = await fetch(`${API_URL}/resolver-combate/`, {
             method: 'POST',
@@ -699,17 +752,35 @@ async function ejecutarCombateDirecto() {
                 partida_id: partidaActual.id,
                 origen_id: municipioOrigenId,
                 destino_id: municipioDestinoId,
-                modalidad: 'DADOS',
-                opcion_id: null
+                modalidad: modalidad,
+                opcion_id: opcionId
             })
         });
         const r = await res.json();
         cerrarModal('modal-trivia');
+
+        if (!res.ok) {
+            mostrarToast(r.error || 'No se pudo resolver el combate.', 'alerta');
+            municipioOrigenId = null;
+            municipioDestinoId = null;
+            await actualizarEstadoPartida(false);
+            return;
+        }
+
         const gano = r.resultado === 'victoria';
+        let detalle = `<strong>Tu Dado:</strong> ${r.dado_ataque} vs <strong>Defensa:</strong> ${r.dado_defensa}`;
+        if (r.trivia_correcta === true) detalle = `✅ Trivia correcta<br>${detalle}`;
+        if (r.trivia_correcta === false) detalle = `❌ Trivia incorrecta<br>${detalle}`;
+        if (Array.isArray(r.notas_terreno) && r.notas_terreno.length) {
+            detalle += `<br><small style="color:#94a3b8;">${r.notas_terreno.join('<br>')}</small>`;
+        }
+        if (r.conquistado) detalle += '<br><strong style="color:#a6e3a1;">🚩 ¡Territorio conquistado!</strong>';
+
         mostrarModalResultado(
-            gano ? '🏆 ¡Ganaste la Tirada!' : '💀 ¡Perdiste la Tirada!',
-            `<strong>Tu Dado:</strong> ${r.dado_ataque} vs <strong>Defensa:</strong> ${r.dado_defensa}`,
-            gano ? obtenerFraseAleatoria(CHISTES_VICTORIA) : obtenerFraseAleatoria(CHISTES_DERROTA)
+            r.conquistado ? '🚩 ¡Territorio Conquistado!' : (gano ? '🏆 ¡Ganaste la Tirada!' : '💀 ¡Perdiste la Tirada!'),
+            detalle,
+            r.conquistado ? obtenerFraseAleatoria(CHISTES_CONQUISTA)
+                : (gano ? obtenerFraseAleatoria(CHISTES_VICTORIA) : obtenerFraseAleatoria(CHISTES_DERROTA))
         );
         municipioOrigenId = null;
         municipioDestinoId = null;
@@ -747,3 +818,494 @@ async function actualizarEstadoPartida(reiniciarReloj = false) {
         }
     } catch (err) { console.error('Error actualizando estado:', err); }
 }
+
+
+/* =====================================================================
+   BLOQUE AGREGADO — Funciones que el index.html ya usaba y faltaban.
+   No reemplaza lógica anterior: envuelve las funciones existentes.
+   ===================================================================== */
+
+let cartasSeleccionadas = [];
+let cartaBeneficioId = null;
+let finPartidaAnunciada = null;
+
+const VECINOS_EXTRA_NACIONAL = {
+    'chubut': ['río negro', 'santa cruz'],
+    'río negro': ['chubut'],
+    'santa cruz': ['chubut']
+};
+
+function escaparHTML(texto) {
+    return String(texto ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function obtenerMiJugador() {
+    return (partidaActual?.jugadores || []).find(j => Number(j.id) === Number(miJugadorId)) || null;
+}
+
+function enemigosIds() {
+    return (partidaActual?.tablero || [])
+        .filter(t => Number(t.jugador_id) !== Number(miJugadorId))
+        .map(t => t.municipio_id);
+}
+
+// Dos territorios son limítrofes según el mapa. Si el mapa no permite saberlo
+// (territorio sin vecinos detectados), no se bloquea la jugada.
+function sonLimitrofes(idA, idB) {
+    const a = partidaActual.tablero.find(t => t.municipio_id === idA);
+    const b = partidaActual.tablero.find(t => t.municipio_id === idB);
+    if (!a || !b) return false;
+    const nomA = a.municipio_nombre.toLowerCase().trim();
+    const nomB = b.municipio_nombre.toLowerCase().trim();
+
+    if (partidaActual.tipo_mapa === 'NACIONAL' && (VECINOS_EXTRA_NACIONAL[nomA] || []).includes(nomB)) return true;
+
+    const vecinosA = obtenerVecinosGeo(a.municipio_nombre);
+    const vecinosB = obtenerVecinosGeo(b.municipio_nombre);
+    if (vecinosA.some(v => v.municipio_id === idB) || vecinosB.some(v => v.municipio_id === idA)) return true;
+    return vecinosA.length === 0 || vecinosB.length === 0;
+}
+
+/* ---------- Sala creada / compartir código ---------- */
+
+function mostrarSalaCreada() {
+    if (!partidaActual) return;
+    const codigoEl = document.getElementById('info-codigo-creado');
+    const privEl = document.getElementById('info-privacidad-creada');
+    if (codigoEl) codigoEl.innerText = partidaActual.codigo_sala;
+    if (privEl) privEl.innerText = partidaActual.privacidad === 'CERRADA'
+        ? '🔒 Sala privada: pasales también la contraseña.'
+        : '🌐 Sala abierta: cualquiera con el código puede entrar.';
+    abrirModal('modal-sala-creada');
+}
+
+async function copiarTexto(texto) {
+    try {
+        await navigator.clipboard.writeText(texto);
+        return true;
+    } catch (e) {
+        const tmp = document.createElement('textarea');
+        tmp.value = texto;
+        document.body.appendChild(tmp);
+        tmp.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+        document.body.removeChild(tmp);
+        return ok;
+    }
+}
+
+document.getElementById('btn-ver-codigo').addEventListener('click', mostrarSalaCreada);
+
+document.getElementById('btn-copiar-codigo').addEventListener('click', async () => {
+    if (!partidaActual) return;
+    const ok = await copiarTexto(partidaActual.codigo_sala);
+    mostrarToast(ok ? `📋 Código ${partidaActual.codigo_sala} copiado.` : `Código de sala: ${partidaActual.codigo_sala}`, 'info');
+});
+
+/* ---------- Contraseña de sala cerrada ---------- */
+
+document.getElementById('crear-privacidad').addEventListener('change', (e) => {
+    const campo = document.getElementById('campo-password');
+    if (campo) campo.classList.toggle('hidden', e.target.value !== 'CERRADA');
+});
+
+/* ---------- Reagrupamiento ---------- */
+
+function salirModoReagrupar() {
+    modoReagrupar = false;
+    municipioOrigenId = null;
+    municipioDestinoId = null;
+}
+
+document.getElementById('btn-modo-reagrupar').addEventListener('click', () => {
+    if (!esMiTurnoActual() || !partidaIniciada) return;
+    if (Number(partidaActual.jugador_turno_tropas) > 0) {
+        mostrarToast('Primero desplegá todos tus refuerzos.', 'alerta');
+        return;
+    }
+    bombaActivaId = null;
+    municipioOrigenId = null;
+    municipioDestinoId = null;
+    modoReagrupar = !modoReagrupar;
+    if (modoReagrupar) mostrarToast('🔄 Reagrupamiento: elegí un territorio propio de origen. Ojo: después ya no podés atacar en este turno.', 'info');
+    actualizarHeader();
+    actualizarResaltadosMapa();
+});
+
+async function manejarClickReagrupar(id) {
+    const celda = partidaActual.tablero.find(t => t.municipio_id === id);
+    if (!celda) return;
+    const esPropio = Number(celda.jugador_id) === Number(miJugadorId);
+
+    if (!municipioOrigenId) {
+        if (!esPropio) { mostrarToast('Elegí primero un territorio TUYO como origen.', 'alerta'); return; }
+        if (celda.tropas < 2) { mostrarToast('El origen necesita al menos 2 tropas.', 'alerta'); return; }
+        municipioOrigenId = id;
+        actualizarHeader();
+        actualizarResaltadosMapa();
+        return;
+    }
+
+    if (municipioOrigenId === id) {
+        municipioOrigenId = null;
+        actualizarHeader();
+        actualizarResaltadosMapa();
+        return;
+    }
+
+    if (!esPropio) { mostrarToast('El destino del reagrupamiento tiene que ser un territorio propio.', 'alerta'); return; }
+    if (!sonLimitrofes(municipioOrigenId, id)) { mostrarToast('El municipio seleccionado no es limítrofe.', 'alerta'); return; }
+
+    const origen = partidaActual.tablero.find(t => t.municipio_id === municipioOrigenId);
+    const maximo = origen.tropas - 1;
+    let cantidad = 1;
+    if (maximo > 1) {
+        const respuesta = window.prompt(`¿Cuántas tropas mover de ${origen.municipio_nombre} a ${celda.municipio_nombre}? (1 a ${maximo})`, String(maximo));
+        if (respuesta === null) return;
+        cantidad = parseInt(respuesta, 10);
+        if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > maximo) {
+            mostrarToast(`Ingresá un número entre 1 y ${maximo}.`, 'alerta');
+            return;
+        }
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/mover-tropas/`, {
+            method: 'POST',
+            headers: headersConAuth(),
+            body: JSON.stringify({
+                partida_id: partidaActual.id,
+                origen_id: municipioOrigenId,
+                destino_id: id,
+                cantidad
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            mostrarToast(data.error || 'No se pudo reagrupar.', 'alerta');
+        } else {
+            mostrarToast(`🔄 ${data.mensaje}`, 'turno');
+            if (Number(data.reagrupamientos_restantes) <= 0) {
+                modoReagrupar = false;
+                mostrarToast(`🔄 ${data.mensaje}. Ya no te quedan reagrupamientos: pasá el turno.`, 'turno');
+            }
+        }
+        municipioOrigenId = null;
+        municipioDestinoId = null;
+        await actualizarEstadoPartida(false);
+    } catch (err) { console.error('Error al reagrupar:', err); }
+}
+
+/* ---------- Cancelar selección ---------- */
+
+document.getElementById('btn-cancelar-accion-mapa').addEventListener('click', () => {
+    municipioOrigenId = null;
+    municipioDestinoId = null;
+    bombaActivaId = null;
+    modoReagrupar = false;
+    actualizarHeader();
+    actualizarResaltadosMapa();
+});
+
+/* ---------- Rendirse ---------- */
+
+document.getElementById('btn-rendirse').addEventListener('click', () => {
+    if (!partidaActual || !partidaActual.activa || !partidaIniciada) return;
+    abrirModal('modal-confirmar-rendicion');
+});
+
+document.getElementById('btn-confirmar-rendicion-si').addEventListener('click', async () => {
+    cerrarModal('modal-confirmar-rendicion');
+    if (!partidaActual || !miJugadorId) return;
+    try {
+        const res = await fetch(`${API_URL}/rendirse/`, {
+            method: 'POST',
+            headers: headersConAuth(),
+            body: JSON.stringify({ partida_id: partidaActual.id, jugador_id: miJugadorId })
+        });
+        const data = await res.json();
+        if (!res.ok) { mostrarToast(data.error || 'No se pudo procesar la rendición.', 'alerta'); return; }
+        salirModoReagrupar();
+        await actualizarEstadoPartida(true);
+        if (!data.victoria_final) {
+            finPartidaAnunciada = `rendido-${partidaActual.id}`;
+            abrirModal('modal-derrotado');
+        }
+    } catch (err) { console.error('Error al rendirse:', err); }
+});
+
+/* ---------- Cartas, canje, beneficios y bomba ---------- */
+
+function misCartasActivas() {
+    return (partidaActual?.cartas || []).filter(c => Number(c.jugador_id) === Number(miJugadorId) && !c.canjeada);
+}
+
+function renderizarCartas() {
+    const lista = document.getElementById('lista-mis-cartas');
+    const btnCanje = document.getElementById('btn-canjear-cartas');
+    if (!lista || !partidaActual) return;
+
+    const cartas = misCartasActivas();
+    const idsValidos = cartas.filter(c => c.tipo_carta === 'TERRITORIO').map(c => c.id);
+    cartasSeleccionadas = cartasSeleccionadas.filter(id => idsValidos.includes(id));
+
+    if (!cartas.length) {
+        lista.innerHTML = '<p class="empty-msg">Aún no tenés cartas en tu mano.</p>';
+        if (btnCanje) btnCanje.classList.add('hidden');
+        return;
+    }
+
+    const puedeActuar = partidaIniciada && partidaActual.activa && esMiTurnoActual();
+    lista.innerHTML = '';
+
+    cartas.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'national-card' + (cartasSeleccionadas.includes(c.id) ? ' selected' : '');
+
+        const celda = partidaActual.tablero.find(t => t.municipio_id === c.municipio_id);
+        const esTerritorioMio = Boolean(celda && Number(celda.jugador_id) === Number(miJugadorId));
+
+        let html = `
+            <div class="card-header-row">
+                <span class="card-icon">${escaparHTML(c.emblema_icono)}</span>
+                ${c.tipo_carta === 'TERRITORIO' && esTerritorioMio ? '<span class="card-badge-own">PROPIO</span>' : ''}
+            </div>
+            <div class="card-territory-name">${c.tipo_carta === 'BOMBA' ? escaparHTML(c.emblema_titulo) : escaparHTML(c.municipio_nombre)}</div>
+            <div class="card-emblem-name">${c.tipo_carta === 'BOMBA' ? 'Armamento especial' : escaparHTML(c.emblema_titulo)}</div>
+        `;
+        div.innerHTML = html;
+
+        if (c.tipo_carta === 'TERRITORIO') {
+            div.addEventListener('click', () => {
+                const i = cartasSeleccionadas.indexOf(c.id);
+                if (i >= 0) cartasSeleccionadas.splice(i, 1);
+                else if (cartasSeleccionadas.length < 3) cartasSeleccionadas.push(c.id);
+                else mostrarToast('Solo podés canjear 3 cartas a la vez.', 'alerta');
+                renderizarCartas();
+            });
+            if (esTerritorioMio && puedeActuar) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-secondary';
+                btn.style.cssText = 'width:100%; margin-top:8px; padding:4px 8px; font-size:0.8rem;';
+                btn.textContent = '🎖️ Activar beneficio';
+                btn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    cartaBeneficioId = c.id;
+                    const txt = document.getElementById('texto-beneficio-carta');
+                    if (txt) txt.innerText = `Elegí el beneficio de ${c.municipio_nombre}:`;
+                    abrirModal('modal-beneficio-carta');
+                });
+                div.appendChild(btn);
+            }
+        } else if (c.tipo_carta === 'BOMBA' && puedeActuar) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-primary';
+            btn.style.cssText = 'width:100%; margin-top:8px; padding:4px 8px; font-size:0.8rem; background:#ef4444; color:#fff;';
+            btn.textContent = bombaActivaId === c.id ? '🎯 Elegí el objetivo en el mapa…' : '💣 Lanzar bomba';
+            btn.addEventListener('click', () => {
+                if (bombaActivaId === c.id) { bombaActivaId = null; }
+                else {
+                    bombaActivaId = c.id;
+                    modoReagrupar = false;
+                    municipioOrigenId = null;
+                    mostrarToast('💣 Tocá un territorio ENEMIGO para bombardearlo.', 'alerta');
+                }
+                actualizarHeader();
+                actualizarResaltadosMapa();
+                renderizarCartas();
+            });
+            div.appendChild(btn);
+        }
+        lista.appendChild(div);
+    });
+
+    if (btnCanje) btnCanje.classList.toggle('hidden', !(puedeActuar && cartasSeleccionadas.length === 3));
+}
+
+document.getElementById('btn-canjear-cartas').addEventListener('click', async () => {
+    if (cartasSeleccionadas.length !== 3) return;
+    try {
+        const res = await fetch(`${API_URL}/canjear-cartas/`, {
+            method: 'POST',
+            headers: headersConAuth(),
+            body: JSON.stringify({ partida_id: partidaActual.id, cartas_ids: cartasSeleccionadas })
+        });
+        const data = await res.json();
+        if (!res.ok) { mostrarToast(data.error || 'No se pudo canjear.', 'alerta'); return; }
+        cartasSeleccionadas = [];
+        const extra = (data.bonus_territorios || []).length ? ` (+2 tropas en ${data.bonus_territorios.join(', ')})` : '';
+        mostrarToast(`✨ Canje exitoso: +${data.bonus_refuerzos} refuerzos${extra}.`, 'turno');
+        await actualizarEstadoPartida(false);
+    } catch (err) { console.error('Error al canjear cartas:', err); }
+});
+
+async function aplicarBeneficioCarta(beneficio) {
+    if (!cartaBeneficioId || !partidaActual) return;
+    try {
+        const res = await fetch(`${API_URL}/beneficio-carta/`, {
+            method: 'POST',
+            headers: headersConAuth(),
+            body: JSON.stringify({ partida_id: partidaActual.id, carta_id: cartaBeneficioId, beneficio })
+        });
+        const data = await res.json();
+        cerrarModal('modal-beneficio-carta');
+        if (!res.ok) { mostrarToast(data.error || 'No se pudo activar el beneficio.', 'alerta'); return; }
+        cartaBeneficioId = null;
+        mostrarToast(`🎖️ ${data.mensaje}`, 'turno');
+        await actualizarEstadoPartida(false);
+    } catch (err) { console.error('Error al aplicar beneficio:', err); }
+}
+
+async function lanzarBomba(destinoId) {
+    const celda = partidaActual.tablero.find(t => t.municipio_id === destinoId);
+    if (!celda) return;
+    if (Number(celda.jugador_id) === Number(miJugadorId)) {
+        mostrarToast('No podés bombardear tus propios territorios.', 'alerta');
+        return;
+    }
+    try {
+        const res = await fetch(`${API_URL}/usar-bomba/`, {
+            method: 'POST',
+            headers: headersConAuth(),
+            body: JSON.stringify({ partida_id: partidaActual.id, carta_id: bombaActivaId, destino_id: destinoId })
+        });
+        const data = await res.json();
+        if (!res.ok) { mostrarToast(data.error || 'No se pudo lanzar la bomba.', 'alerta'); return; }
+        bombaActivaId = null;
+        mostrarToast(`💣 ${data.destino}: ${data.bajas} baja(s). Le quedan ${data.tropas_restantes} tropas.`, 'turno');
+        await actualizarEstadoPartida(false);
+    } catch (err) { console.error('Error al usar bomba:', err); }
+}
+
+/* ---------- Avisos de fin de turno ---------- */
+
+function anunciarResultadoTurno(data) {
+    const partes = [];
+    if (data.evento_carta) partes.push(data.evento_carta);
+    if (data.carta_ganada) partes.push(`🃏 Ganaste una carta: ${escaparHTML(data.carta_ganada.municipio_nombre)} ${escaparHTML(data.carta_ganada.emblema_icono)}`);
+    if (Array.isArray(data.acciones_ia) && data.acciones_ia.length) {
+        partes.push(data.acciones_ia.slice(-4).map(escaparHTML).join('<br>'));
+    }
+    if (!partes.length) return;
+    mostrarToast(partes.join('<br>'), data.evento_carta ? 'alerta' : 'espera');
+    const toast = document.getElementById('toast-notificacion');
+    if (toast) {
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => toast.classList.add('hidden'), 7000);
+    }
+}
+
+/* ---------- Pantallas de victoria / derrota ---------- */
+
+function verificarFinPartida() {
+    if (!partidaActual || partidaActual.activa) return;
+    const clave = `fin-${partidaActual.id}`;
+    if (finPartidaAnunciada === clave || finPartidaAnunciada === `rendido-${partidaActual.id}`) return;
+    finPartidaAnunciada = clave;
+
+    const ganador = partidaActual.ganador_nombre;
+    const yo = obtenerMiJugador();
+    if (ganador && yo && yo.nombre === ganador) {
+        const msg = document.getElementById('victoria-mensaje');
+        if (msg) msg.innerText = `¡${ganador} conquistó el mapa! ${obtenerFraseAleatoria(CHISTES_VICTORIA)}`;
+        abrirModal('modal-victoria');
+    } else {
+        const msg = document.getElementById('derrotado-mensaje');
+        if (msg) msg.innerText = ganador ? `La partida terminó: ganó ${ganador}.` : 'La partida terminó.';
+        abrirModal('modal-derrotado');
+    }
+}
+
+/* ---------- Controles que dependen del estado ---------- */
+
+function actualizarControlesExtra() {
+    if (!partidaActual) return;
+    const activa = Boolean(partidaActual.activa);
+    const esMiTurno = esMiTurnoActual();
+    const yo = obtenerMiJugador();
+    const sinRefuerzos = Number(partidaActual.jugador_turno_tropas) === 0;
+
+    if (esMiTurno && !sinRefuerzos && modoReagrupar) salirModoReagrupar();
+
+    const btnCodigo = document.getElementById('btn-ver-codigo');
+    if (btnCodigo) btnCodigo.classList.toggle('hidden', !activa);
+
+    const btnReag = document.getElementById('btn-modo-reagrupar');
+    if (btnReag) {
+        const visible = activa && partidaIniciada && esMiTurno && sinRefuerzos;
+        btnReag.classList.toggle('hidden', !visible);
+        btnReag.innerText = modoReagrupar ? '⚔️ Volver a Atacar' : '🔄 Reagrupar';
+        btnReag.style.cssText = modoReagrupar ? 'background:#10b981; color:#052e16; font-weight:800;' : '';
+    }
+
+    const btnRendir = document.getElementById('btn-rendirse');
+    if (btnRendir) btnRendir.classList.toggle('hidden', !(activa && partidaIniciada && yo && !yo.rendido));
+
+    const btnPasar = document.getElementById('btn-pasar-turno');
+    if (btnPasar && yo && yo.rendido) btnPasar.classList.add('hidden');
+
+    const btnCancelar = document.getElementById('btn-cancelar-accion-mapa');
+    if (btnCancelar) {
+        const haySeleccion = Boolean(municipioOrigenId || bombaActivaId || modoReagrupar);
+        btnCancelar.classList.toggle('hidden', !(activa && partidaIniciada && esMiTurno && haySeleccion));
+    }
+
+    const indicador = document.getElementById('indicador-fase');
+    if (indicador) {
+        if (!activa) indicador.innerText = 'Partida finalizada';
+        else if (!partidaIniciada) indicador.innerText = 'Sala preparada: esperando el inicio de la batalla';
+        else if (!esMiTurno) indicador.innerText = `Turno de ${partidaActual.jugador_turno_nombre}`;
+        else if (!sinRefuerzos) indicador.innerText = 'Fase 1: Incorporación de refuerzos';
+        else if (modoReagrupar) indicador.innerText = 'Fase 3: Reagrupamiento';
+        else indicador.innerText = 'Fase 2: Ataque';
+    }
+}
+
+/* ---------- Envoltorios de funciones existentes ---------- */
+
+const _actualizarHeaderOriginal = actualizarHeader;
+actualizarHeader = function () {
+    _actualizarHeaderOriginal.apply(this, arguments);
+    actualizarControlesExtra();
+    verificarFinPartida();
+};
+
+const _renderizarPanelesOriginal = renderizarPanelesLaterales;
+renderizarPanelesLaterales = function () {
+    _renderizarPanelesOriginal.apply(this, arguments);
+    renderizarCartas();
+};
+
+const _actualizarResaltadosOriginal = actualizarResaltadosMapa;
+actualizarResaltadosMapa = function () {
+    _actualizarResaltadosOriginal.apply(this, arguments);
+    if (mapaSVG && partidaActual && partidaIniciada && esMiTurnoActual() && bombaActivaId) {
+        mapaSVG.limpiarResaltados();
+        mapaSVG.resaltarDestinos(enemigosIds(), 'territorio-destino-ataque');
+    }
+};
+
+const _seleccionarTerritorioOriginal = seleccionarTerritorio;
+seleccionarTerritorio = async function (id) {
+    if (partidaActual && partidaActual.activa && partidaIniciada && esMiTurnoActual()) {
+        if (bombaActivaId) { await lanzarBomba(id); return; }
+        if (modoReagrupar && Number(partidaActual.jugador_turno_tropas) === 0) { await manejarClickReagrupar(id); return; }
+
+        // Ataque: el destino debe ser enemigo y limítrofe (el backend delega esta validación al mapa).
+        if (municipioOrigenId && municipioOrigenId !== id && Number(partidaActual.jugador_turno_tropas) === 0) {
+            const destino = partidaActual.tablero.find(t => t.municipio_id === id);
+            if (destino && Number(destino.jugador_id) === Number(miJugadorId)) {
+                mostrarToast('No podés atacar tus propios territorios.', 'alerta');
+                return;
+            }
+            if (destino && !sonLimitrofes(municipioOrigenId, id)) {
+                mostrarToast('El municipio seleccionado no es limítrofe.', 'alerta');
+                return;
+            }
+        }
+    }
+    return _seleccionarTerritorioOriginal.apply(this, arguments);
+};

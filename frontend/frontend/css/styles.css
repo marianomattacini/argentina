@@ -484,3 +484,23 @@ body {
     text-align: center;
     padding: 16px 6px;
 }
+
+/* ===== Resaltados del mapa (faltaban estas clases) ===== */
+.territorio-reforzable {
+    stroke: #38bdf8 !important;
+    stroke-width: 3 !important;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.75));
+    cursor: pointer;
+}
+
+.territorio-destino-ataque {
+    stroke: #ef4444 !important;
+    stroke-width: 3 !important;
+    filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.75));
+}
+
+.territorio-destino-reagrupe {
+    stroke: #10b981 !important;
+    stroke-width: 3 !important;
+    filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.75));
+}
