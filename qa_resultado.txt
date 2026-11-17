@@ -1,0 +1,82 @@
+QA ARGENTINA - 2026-11-16 20:01:33
+
+======================================================================
+A. ENTORNO Y ARCHIVOS
+======================================================================
+Python: 3.12.10 (C:\Users\mariano mattacini\Desktop\Argentina\backend\.venv\Scripts\python.exe)
+Sistema: Windows-10-10.0.19045-SP0
+Carpeta del proyecto: C:\Users\mariano mattacini\Desktop\Argentina
+[ OK  ] Python 3.12 o superior  ->  3.12.10
+[ OK  ] backend/manage.py existe
+[ OK  ] frontend/frontend/index.html existe
+[ OK  ] settings.py tiene el arreglo de "database is locked"
+[ OK  ] views.py y emblemas.py son la version con emblemas por municipio
+[ OK  ] app.js (disco) tiene las funciones que faltaban (reagrupar, rendirse, cartas...)
+[ OK  ] app.js (disco) es la ULTIMA version (muestra el motivo real del error)
+[ OK  ] styles.css tiene los resaltados del mapa
+
+El juego no esta corriendo: levanto backend y frontend solo para la prueba...
+
+======================================================================
+B. SERVIDORES Y FRONTEND SERVIDO
+======================================================================
+[ OK  ] Backend responde en 127.0.0.1:8000
+[ OK  ] Un solo proceso escuchando el puerto 8000 (backend)  ->  PID 4596
+[ OK  ] Un solo proceso escuchando el puerto 5500 (frontend)  ->  PID 11560
+[ OK  ] Frontend responde en 127.0.0.1:5500
+[ OK  ] Se sirve css/styles.css
+[ OK  ] Se sirve data/argentina_completa.js
+[ OK  ] Se sirve js/mapa_svg.js
+[ OK  ] Se sirve js/app.js
+[ OK  ] El app.js que SIRVE el servidor es la ultima version
+[ OK  ] El frontend se sirve sin cache (el navegador no usa versiones viejas)
+[FALLA] Hay internet para cargar https://d3js.org/d3.v7.min.js  ->  HTTP 403: sin esa libreria el mapa no se dibuja
+
+======================================================================
+C. FLUJO COMPLETO DE UNA PARTIDA (vs IA, mapa de Mendoza)
+======================================================================
+[ OK  ] Crear partida
+[ OK  ] El tablero tiene los territorios de Mendoza  ->  18 territorios
+[ OK  ] Hay 2 jugadores (vos + IA)
+[ OK  ] La partida nace "sin iniciar"
+[ OK  ] Las tarjetas traen emblema propio del municipio  ->  Rivadavia=Oasis del Este mendocino; Santa Rosa=Reserva de Ñacuñán
+[ OK  ] INICIAR BATALLA (con refresco simultaneo del navegador)
+[ OK  ] Iniciar dos veces no rompe (idempotente)
+[ OK  ] Empezas vos, con refuerzos para desplegar  ->  refuerzos=4
+[ OK  ] Reforzar 4 veces
+[ OK  ] Sin refuerzos pendientes tras desplegar
+[ OK  ] Preparar ataque
+[ OK  ] Resolver combate por dados  ->  derrota (3 vs 5)
+[ OK  ] Reagrupar (mover 1 tropa entre territorios propios)  ->  Moviste 1 tropa(s) de Tunuyán a Maipú
+[ OK  ] Pasar turno (juega la IA)  ->  3 acciones de la IA
+[ OK  ] Vuelve tu turno con refuerzos nuevos  ->  refuerzos=4
+[ OK  ] Rendirse
+[ OK  ] La partida termina y hay ganador  ->  ganador=Bot Belgrano (IA)
+[ OK  ] El refresco constante del navegador nunca fallo durante el flujo
+
+======================================================================
+D. 8 PARTIDAS A LA VEZ (reproduce el error "database is locked")
+======================================================================
+[ OK  ] 8 de 8 partidas simultaneas se crearon e iniciaron bien
+
+======================================================================
+E. SALA MULTIJUGADOR CON CONTRASENA
+======================================================================
+[ OK  ] Crear sala CERRADA con contrasena
+[ OK  ] Contrasena incorrecta es rechazada
+[ OK  ] Unirse con la contrasena correcta
+[ OK  ] Solo el creador puede iniciar la batalla
+[ OK  ] El creador inicia la batalla
+
+======================================================================
+F. LOG DEL BACKEND (backend/servidor.log)
+======================================================================
+[ OK  ] servidor.log sin errores 500 ni excepciones
+
+Limpieza: se borraron las partidas de prueba (230 registros).
+
+======================================================================
+RESUMEN
+======================================================================
+OK: 43   AVISOS: 0   FALLAS: 1
+  FALLA: Hay internet para cargar https://d3js.org/d3.v7.min.js  ->  HTTP 403: sin esa libreria el mapa no se dibuja

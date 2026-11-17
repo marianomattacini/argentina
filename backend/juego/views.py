@@ -11,6 +11,7 @@ from .models import (
     CartaTerritorio, Pregunta, OpcionRespuesta
 )
 from .serializers import PartidaSerializer, TriviaSerializer, CartaTerritorioSerializer, obtener_info_bioma
+from .emblemas import emblema_para_municipio
 
 COLORES_DISPONIBLES = ['Rojo', 'Azul', 'Verde', 'Amarillo', 'Violeta', 'Naranja']
 
@@ -89,7 +90,11 @@ def otorgar_carta_nacional(partida, jugador, permitir_eventos=True):
 
     celdas_propias = [c for c in todas_celdas if c.jugador_id == jugador.id]
     elegida = random.choice(celdas_propias) if (celdas_propias and random.random() < 0.5) else random.choice(todas_celdas)
-    simbolo, titulo, icono = random.choices(EMBLEMAS_ARGENTINOS, weights=[32, 32, 30, 6], k=1)[0]
+    # La tarjeta muestra el emblema propio del municipio; solo un 6% son Escarapela (comodin).
+    emblema = None if random.random() < 0.06 else emblema_para_municipio(elegida.municipio)
+    if emblema is None:
+        emblema = EMBLEMAS_ARGENTINOS[3]  # Escarapela Nacional (comodin)
+    simbolo, titulo, icono = emblema
 
     carta = CartaTerritorio.objects.create(
         partida=partida,

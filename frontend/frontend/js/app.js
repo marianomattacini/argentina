@@ -302,7 +302,7 @@ async function iniciarPartidaEnServidor() {
         iniciarRelojTurno();
     } catch (err) {
         console.error('Error al iniciar partida:', err);
-        mostrarToast('No se pudo conectar con el servidor para iniciar la partida.', 'alerta');
+        mostrarToast(`No se pudo iniciar la partida (${err && err.message ? err.message : 'sin conexión'}). Revisá backend\\servidor.log.`, 'alerta');
     }
 }
 

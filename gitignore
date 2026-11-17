@@ -1,0 +1,17 @@
+# Entornos virtuales (son de cada PC, no se suben)
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / sistema
+.vscode/
+Thumbs.db
+
+servidor.log
+*.sqlite3-wal
+*.sqlite3-shm

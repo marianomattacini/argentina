@@ -80,6 +80,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            # Evita "database is locked" cuando hay varias peticiones a la vez:
+            # espera hasta 20 s y toma el bloqueo de escritura al inicio de la transaccion.
+            'timeout': 20,
+            'transaction_mode': 'IMMEDIATE',
+            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+        },
     }
 }
 
@@ -132,3 +139,6 @@ MAILERS = {
 
 
 CORS_ALLOW_ALL_ORIGINS = True
+# El frontend envia el token del jugador en esta cabecera: sin esto el navegador bloquea el POST (preflight CORS).
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-player-token']
